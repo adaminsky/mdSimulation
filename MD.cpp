@@ -7,10 +7,17 @@ using namespace std;
 
 double tmp = 240;
 double etot;
+// Time step.
 const double DT = 1e-2;
-const double DENSITY_FACTOR = 1.709975947;
-const double X_SIZE = 1/(10.25985568);
+// Distance between two particles in the original configuration (measured in A).
+const double DENSITY_FACTOR = 1.077217345;//1.709975947;
+// Total number of particles in the system.
+const int NPART = 216;
+const double SIDE_LENGTH = 6*DENSITY_FACTOR;
+// Reciprocal of the side length of the original cube layout.
+const double X_SIZE = 1/SIDE_LENGTH;
 const double PI = 3.14159;
+const double ECUT = 6547.0464;//15.97439995;
 
 
 Coord velocities[216];
@@ -28,14 +35,14 @@ void init() {
 	Coord sumV2;
 
 	// Assigning the particles to a lattice.
-	for (int i = 0; i < 216; i++) {
+	for (int i = 0; i < NPART; i++) {
 		x[i] = Coord((i/36)*DENSITY_FACTOR, ((i%36)/6)*DENSITY_FACTOR, (i%6)*DENSITY_FACTOR);
 		velocities[i] = Coord(((double)rand() / RAND_MAX) - .5, ((double)rand() / RAND_MAX) - .5, ((double)rand() / RAND_MAX) - .5);
 		sumV = sumV + velocities[i];
 		sumV2 = sumV2 + (velocities[i]*velocities[i]);
 	}	
-	sumV = sumV / 216;
-	sumV2 = sumV2 / 216;
+	sumV = sumV / NPART;
+	sumV2 = sumV2 / NPART;
 
 	// Velocity scale factor.
 	double fsx = sqrt(3*tmp/sumV2.x);
@@ -43,7 +50,7 @@ void init() {
 	double fsz = sqrt(3*tmp/sumV2.z);
 	Coord fs = Coord(fsx, fsy, fsz);
 
-	for (int i = 0; i < 216; i++) {
+	for (int i = 0; i < NPART; i++) {
 		// Subtracting the CM velocity from each velocity to make the
 		// CM velocity zero.
 		velocities[i] = (velocities[i] - sumV);
@@ -56,7 +63,7 @@ void init() {
 void force() {
 	en = 0;
 	// Setting forces to zero.
-	for (int i = 0; i < 216; i++) {
+	for (int i = 0; i < NPART; i++) {
 		f[i].x = 0;
 		f[i].y = 0;
 		f[i].z = 0;
@@ -64,8 +71,8 @@ void force() {
 	Coord xrP;
 	double r2;
 	// Looping over all particle pairs.
-	for (int i = 0; i < 215; i++) {
-		for (int j = i+1; j < 216; j++) {
+	for (int i = 0; i < NPART - 1; i++) {
+		for (int j = i+1; j < NPART; j++) {
 			xrP = (x[i] - x[j]);
 
 			// periodic boundary conditions:
@@ -76,13 +83,13 @@ void force() {
 			r2 = (xrP.x*xrP.x)+(xrP.y*xrP.y)+(xrP.z*xrP.z);
 			
 			// Checking for cutoff.
-			if (r2 < 26.31615964) {
+			if (r2 < (SIDE_LENGTH/2)*(SIDE_LENGTH/2)) {
 				double r2i = 1/r2;
 				double r6i = r2i*r2i*r2i;
 				double ff = 48*r2i*r6i*(r6i-0.5);
 				f[i] = f[i] + xrP*ff;
 				f[j] = f[j] - xrP*ff;
-				en = en + 4*r6i*(r6i-1)-(-2.19466695e-4);
+				en = en + 4*r6i*(r6i-1)-(ECUT);
 			}
 			
 		}	
@@ -91,7 +98,7 @@ void force() {
 void integrate(double t) {
 	Coord sumv;
 	Coord sumv2;
-	for (int i = 0; i < 216; i++) {
+	for (int i = 0; i < NPART; i++) {
 		Coord xx, vi;
 		xx = x[i]*2 - xprev[i] + f[i]*(DT)*(DT);
 		vi = (xx - xprev[i]) / (2*(DT));
@@ -100,17 +107,18 @@ void integrate(double t) {
 		xprev[i] = x[i];
 		x[i] = xx;
 	}
-	tmp = sqrt((sumv2.x*sumv2.x)+(sumv2.y*sumv2.y)+(sumv2.z*sumv2.z)) / (3*216);
-	etot = (en + 0.5*sqrt((sumv2.x*sumv2.x)+(sumv2.y*sumv2.y)+(sumv2.z*sumv2.z))) / 216;
+	tmp = sqrt((sumv2.x*sumv2.x)+(sumv2.y*sumv2.y)+(sumv2.z*sumv2.z)) / (3*NPART);
+	etot = (en + 0.5*sqrt((sumv2.x*sumv2.x)+(sumv2.y*sumv2.y)+(sumv2.z*sumv2.z))) / NPART;
 }
 
-void radDistro() {
+// Pass the number of buckets, at most 100.
+void radDistro(int bucketn) {
 	int ngr = 0;
-	double delg = 10.2598 / (2*100);
+	double delg = SIDE_LENGTH / (2*bucketn);
 	double g[100] = {0};
 	ngr++;
-	for (int i = 0; i < 215; i++) {
-		for (int j = i + 1; j < 216; j++) {
+	for (int i = 0; i < NPART - 1; i++) {
+		for (int j = i + 1; j < NPART; j++) {
 			Coord xr;
 			xr = x[i] - x[j];
 			xr.x -= static_cast<int>(xr.x * X_SIZE + 0.5) / X_SIZE;
@@ -123,69 +131,74 @@ void radDistro() {
 			}
 		}
 	}
-	for (int i = 0; i < 100; i++) {
+	for (int i = 0; i < bucketn; i++) {
 		double r = delg*(i+.5);
 		double vb = ((i+1)*(i+1)*(i+1) - i*i*i)*delg*delg*delg;
 		double nid = (4.0/3)*PI*vb*.2;
-		g[i] = g[i] / (216*nid);
+		g[i] = g[i] / (NPART*nid);
 	}
-	for (int i = 0; i < 100; i++) {
+	for (int i = 0; i < bucketn; i++) {
 		cout << g[i] << endl;
 	}
+	Gnuplot r("point");
+	vector<double> x1,y1;
+	for (int j = 0; j < 100; j++) {
+		y1.push_back(g[j]);
+		x1.push_back(j+1);
+	}
+	r.reset_plot();
+	r.unset_grid();
+	r.plot_xy(x1,y1, "Test");
+	cin.get();
 }
 
-int main() {
-	Gnuplot g("points");
-	vector<double> x1, y1, z1;
+int main(int argc, char *argv[]) {
+	// Setting up the initial condition for the simulation including
+	// the temperature, density, and initial velocities.
 	init();
-//	for (int i = 0; i < 216; i++) {
-//		cout << x[i].x << ", " << x[i].y << ", " << x[i].z << "   ";
-//		if ((i+1) % 6 == 0)
-//			cout << endl;
-//	}
-//	for (int i = 0; i < 216; i++) {
-//		cout << velocities[i].x << ", " << velocities[i].y << ", " << velocities[i].z << "   ";
-//		if ((i+1) % 6 == 0)
-//			cout << endl;
-//	}
-	for (int i = 0; i < 216; i++) {
-		x1.push_back(x[i].x);
-		y1.push_back(x[i].y);
-		z1.push_back(x[i].z);
-	}
-	g.reset_plot();
-	g.unset_grid();
-	g.plot_xyz(x1,y1,z1, "Test");
-	//cin.get();
-	int index = 0;
-	Coord avV;
-	for (double t = 0; t < 1e1; t+=DT) {
-		force();
-		integrate(t);
-		//cout << etot << endl;
-		//cout << tmp << endl;
-		x1.clear();
-		y1.clear();
-		z1.clear();
-		if (index >= 61)
-			g.remove_oldest_tmpfile();
-		for (int i = 0; i < 216; i++) {
+
+	if (argc == 2 && strncmp(argv[1], "-g", 2) == 0) {
+		vector<double> x1, y1, z1;
+		Gnuplot g("points");
+		for (int i = 0; i < NPART; i++) {
 			x1.push_back(x[i].x);
 			y1.push_back(x[i].y);
 			z1.push_back(x[i].z);
 		}
-		g.reset_plot();
-		g.unset_grid();
-		g.plot_xyz(x1,y1,z1, "Test");
-		usleep(10000);
-		index++;
+		int index = 0;
+		for (double t = 0; t < 1e1; t+=DT) {
+			force();
+			integrate(t);
+			//cout << etot << endl;
+			//cout << tmp << endl;
+			x1.clear();
+			y1.clear();
+			z1.clear();
+			if (index >= 61)
+				g.remove_oldest_tmpfile();
+			for (int i = 0; i < NPART; i++) {
+				x1.push_back(x[i].x);
+				y1.push_back(x[i].y);
+				z1.push_back(x[i].z);
+			}
+			g.reset_plot();
+			g.unset_grid();
+			g.plot_xyz(x1,y1,z1, "Test");
+			usleep(10000);
+			index++;
+		}
 	}
-	for (int i = 0; i < 216; i++) {
-		cout << x[i].x << ", " << x[i].y << ", " << x[i].z << "   ";
-		if ((i+1) % 6 == 0)
-			cout << endl;
+	else {
+		for (double t = 0; t < 1e1; t+=DT) {
+			force();
+			integrate(t);
+			//cout << etot << endl;
+			//cout << tmp << endl;
+		}
 	}
 
-	radDistro();
+	// Create the radial distribution function and then plot it.
+	radDistro(100);
+	cin.get();
 
 }
